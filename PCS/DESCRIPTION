@@ -1,0 +1,12 @@
+Package: PCS
+Version: 0.1
+Date: 2010-09-15
+Title: Photon Correlation Spectroscopy	
+Author: Catalin Tucureanu <ctucureanu@cantacuzino.ro>
+Maintainer: Catalin Tucureanu <ctucureanu@cantacuzino.ro>
+Depends: R (>= 2.11.0), "nnls"", "gplots", "signal", "evd"
+Suggests: MASS
+Description: Early package permitting the analysis of photon correlation spectroscopy data from brookhaven .dat export files
+License: GPL (>= 2)
+URL: http://
+BugReports: http://

@@ -1,0 +1,146 @@
+PCS <- function (datfile, plot=TRUE) {
+
+#check for needed packages
+packageLoaded <- function(name)
+{
+    (paste("package:", name, sep="") %in% search()) ||
+    (name %in% loadedNamespaces())
+}    
+
+if (!packageLoaded("nnls")) library(nnls)
+if (!packageLoaded("evd")) library(evd)
+if (!packageLoaded("gplots")) library(gplots)
+if (!packageLoaded("signal")) library(signal)
+
+# retrieve fizical parameters of the experiment
+PCSparameters <- pipe(paste("./BH2R_PAR.sh < ", datfile), "r")
+PCSparametersTable <- read.table(PCSparameters, header=TRUE)
+close(PCSparameters)
+
+# retrieve experimental data
+experimentalData <- pipe(paste("./BH2R.sh < ", datfile), "r")
+PCSexperiment <- read.table(experimentalData, header=TRUE)
+close(experimentalData)
+
+#normalize data	to last channel (trunchated by calculated baseline)
+PCSexperiment$sig <- PCSexperiment$sig/PCSexperiment[length(PCSexperiment[,2]), 2]-1
+
+# get delay times in microseconds
+PCSexperiment$dly <- PCSexperiment$dly*10^6
+
+# calculate scattering vector 
+
+qhiu <- (4*pi*PCSparametersTable$RI)/(PCSparametersTable$WL*1e-09)*sin(PCSparametersTable$ANG*pi/180)
+De <- 0.0006696*10^-6/qhiu^2
+
+
+# setup a grid of radius (nm)
+PCSradius <- exp(log(10)*seq(log10(1),log10(1000), length=1000))
+
+# initiate gamma vector and calculate model matrix for nnls
+gamma <- 0
+for (i in 1:1000) gamma[i] <- (1.3806503e-23*PCSparametersTable$T)/((PCSradius[i]*10^-6/qhiu^2)*6*pi*PCSparametersTable$VIS)
+PCSexponential <- function(t, gamma) exp(-gamma*t)
+modelMatrix <- matrix(0, nrow=length(PCSexperiment$sig), ncol=1000)
+for (a in 1:1000) modelMatrix[,a] <- PCSexponential(PCSexperiment$dly, gamma[a])
+
+# calculate a large number of solutions by random selection of points
+
+PCSsolutions <- matrix(0, nrow=1000, ncol=200)
+for (i in 1:200) {
+	Rand <- sample(1:length(PCSexperiment[,2]), 10, replace=TRUE)
+	A <- matrix(0, nrow=10, ncol=1000)
+	dlys <- Rand
+	intens <- Rand
+		for (x in 1:10) {
+			dlys[x] <- PCSexperiment[Rand[x],1] 
+			intens[x] <- PCSexperiment[Rand[x],2]
+		}
+	for (a in 1:1000) A[,a] <- PCSexponential(sort(dlys), gamma[a])	
+	PCSsolutions[,i] <- coef(nnls(A, sort(intens, decreasing=TRUE)))
+	}
+
+# eliminate erroneous solutions
+for (i in 1:200) {
+	if(sum(PCSsolutions[,i])>0.1+max(PCSexperiment$sig)) { 
+		PCSsolutions[,i] <- 0 
+		}
+	}
+
+# stabilize by SVD
+svd.PCSsolutions <- svd(PCSsolutions[1:1000,])
+# plot(svd.PCSsolutions$d)
+d5 <- svd.PCSsolutions$d
+d5[6:200] <- 0
+reco.PCSsolutions <- svd.PCSsolutions$u %*% diag(d5) %*% t(svd.PCSsolutions$v)
+
+# eliminate negative values
+rawDistribution <- rowSums(1/2*(reco.PCSsolutions+abs(reco.PCSsolutions)))
+normalisedRawDistribution <- rawDistribution/max(rawDistribution)
+#distribution <- rowMeans(abs(reco.PCSsolutions))
+
+# savinsky golay, and remove negative
+#distribution <- 1/2*(sgolayfilt(rawDistribution, n=41, p=3)+abs(sgolayfilt(rawDistribution, n=41, p=3)))
+# lines(rev(filter(bf, rev(filter(bf, rawDistribution)))), col="green")
+# gaussian filter
+#ma5 <- c(1,2,3,4,5,4,3,2,1)/25
+#distribution <- filter(rawDistribution, ma5)
+bf <- butter(4, 0.05)
+distribution <- 1/2*(rev(filter(bf, rev(filter(bf, rawDistribution))))+abs(rev(filter(bf, rev(filter(bf, rawDistribution))))))
+
+# normalize distribution
+normalisedDistribution <- distribution/max(distribution)
+
+# recalculate exponential decay from distribution and obtain reziduals
+
+######!!!!!!!!!!! need to replace division by 1 with some kind of linear model because of some weird exponentials!!!!!!!!!!!!
+recalcExp <- rowSums(modelMatrix[,1:1000]%*%distribution)
+correction_exp <- coefficients(lm(recalcExp ~ PCSexperiment[,2]))
+normalizedRecalcExp <- recalcExp*1/correction_exp[2]
+rezid <- PCSexperiment[,2]-normalizedRecalcExp
+
+
+# prepare and plot
+#rm(list=ls(pattern="peakint"))
+#rm(list=ls(pattern="peakpos"))
+#rm(populations)
+#rm(peakParameters)
+PCSpeaks <- clusters(normalisedDistribution, 0.03, 5)
+for (i in 1:length(PCSpeaks)) assign(paste("peakpos", i, sep="."), as.numeric(names(PCSpeaks[[i]])))
+for (i in 1:length(PCSpeaks)) assign(paste("peakint", i, sep="."), PCSpeaks[[i]])
+peak.no <- 0
+mean_ <- 0
+median_ <- 0
+area_ <- 0
+
+populations <- ls(pattern="peakint")
+for (i in 1:length(populations)) peak.no[i] <- i
+for (i in 1:length(populations)) mean_[i] <- mean(PCSradius[as.numeric(names(PCSpeaks[[i]]))])
+for (i in 1:length(populations)) median_[i] <- median(PCSradius[as.numeric(names(PCSpeaks[[i]]))])
+trapezoid <- function(x,y) sum(diff(x)*(y[-1]+y[-length(y)]))/2
+for (i in 1:length(populations)) area_[i] <- trapezoid(PCSradius[as.numeric(names(PCSpeaks[[i]]))], PCSpeaks[[i]])
+
+
+peakParameters <- data.frame(peak.no, mean_, median_, area_)
+
+
+
+postscript(file=paste(PCSparametersTable$NAME,".ps"))
+par(oma=c(0,0,2,0))
+par(mfrow=c(3,2))
+plot(PCSexperiment, type="l", log="x")
+lines(PCSexperiment[,1], normalizedRecalcExp, col="red")
+plot(PCSradius[1:1000], normalisedDistribution, log="x", type="l")
+lines(PCSradius[1:1000], normalisedRawDistribution, col="green")
+for (i in 1:length(populations)) {
+	lines(PCSradius[as.numeric(names(PCSpeaks[[i]]))] , PCSpeaks[[i]], col="red")
+}
+plot(PCSexperiment[,1], rezid, log="x")
+textplot(peakParameters)
+plot(svd.PCSsolutions$d)
+title(main=PCSparametersTable$NAME, outer=TRUE)
+dev.off()
+
+
+}
+
