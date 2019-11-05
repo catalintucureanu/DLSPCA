@@ -1,0 +1,72 @@
+#!/bin/sh
+# input .dat file
+#echo -n "Input:"
+#read  inputf 
+# quick option
+#echo -n "default options?(y/n)<y>"
+# output text file
+#echo -n "Output <extract>:"
+#read  outputf 
+
+# path to CONTIN or alias
+#echo -n "path to CONTIN:"
+#read  CONTIN 
+# number of gridpoints in solution
+#echo -n "number of gridpoints in solution <50>:"
+#read NG
+# number of extreme peaks(dust term) NLINF
+#echo -n "number of extreme peaks(dust term) <1>:"
+#read NLINF
+
+
+inputf=$(readlink /proc/$$/fd/0)
+
+# extract file name from .dat file
+prenume=$(cat $inputf | tail -n4 | head -n1 | tr -d "\r" | sed 's/\ /_/g' | sed 's/\//la/g')
+timestamp=$(cat $inputf | tail -n1 | tr -d "\r" | sed 's/:/_/g')
+cps=$(cat $inputf | head -n2 | tail -n1 | tr -d "\r" | sed 's/E/\*10\^/' | sed 's/+//' )
+kcps=$(echo 'scale=0;'$cps' / 1000' | bc)
+nume=$(echo $prenume'_'$kcps'_'$timestamp'_')
+out_par=$(echo $prenume'_'$kcps'_'$timestamp'_.par')
+outputf=$nume
+
+
+# refractive index of liquid
+preR15=$(cat $inputf | head -n14 | tail -n1 | tr -d "\r" | sed 's/E/\*10\^/' | sed 's/+//' )
+R15=$(echo 'scale=3;'$preR15' / 1 ' | bc)
+
+
+# wavelength
+preR16=$(cat $inputf | head -n10 | tail -n1 | tr -d "\r" | sed 's/E/\*10\^/' | sed 's/+//' )
+R16=$(echo 'scale=3;'$preR16' / 1 ' | bc)
+
+
+# angle
+preR17=$(cat $inputf | head -n9 | tail -n1 | tr -d "\r" | sed 's/E/\*10\^/' | sed 's/+//' )
+R17=$(echo 'scale=3;'$preR17' / 1 ' | bc)
+
+
+# absolute temp
+preR18=$(cat $inputf | head -n11 | tail -n1 | tr -d "\r" | sed 's/E/\*10\^/' | sed 's/+//' )
+R18=$(echo 'scale=3;'$preR18' / 1 ' | bc)
+
+
+# viscosity
+preR19=$(cat $inputf | head -n12 | tail -n1 | tr -d "\r" | sed 's/E/\*10\^/' | sed 's/+//' )
+R19=$(echo 'scale=3;'$preR19' / 1 ' | bc)
+
+
+# calculated baseline
+preR10=$(cat $inputf | head -n22 | tail -n1 | tr -d "\r" | sed 's/E/\*10\^/' | sed 's/+//' )
+R10=$(echo 'scale=3;'$preR10' / 1 ' | bc)
+
+
+# measured baseline
+#preR10=$(cat $inputf | head -n23 | tail -n1 | tr -d "\r" | sed 's/E/\*10\^/' | sed 's/+//' )
+#R10=$(echo 'scale=3;'$preR10' / 1 ' | bc)
+#echo " RUSER    10     $R10" >> $outputf
+
+# end parameter setup and write to par file
+
+echo "	NAME	RI	WL	ANG	T	VIS	BASE"
+echo "	$nume	$R15	$R16	$R17	$R18	$R19	$R10"
